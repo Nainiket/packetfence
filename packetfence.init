@@ -1,0 +1,116 @@
+#!/bin/bash
+#
+# Init script for PacketFence network registration / worm mitigation system
+#
+# chkconfig: 345 90 10
+# description: PacketFence network registration / worm mitigation system
+#
+# processname: 
+# config: /usr/local/pf/conf/pf.conf
+
+source /etc/rc.d/init.d/functions
+
+[ -x /usr/local/pf/bin/pfcmd ] || exit 1
+
+start() {
+	if [ -z ${1+x} ]; then
+        pfredis_cache
+		pfconfig
+		echo -n $"Starting PacketFence..."
+		IPSET=`command -v ipset`
+		if [ $IPSET ]; then
+			modprobe ip_set
+			#flush any previous ipset rules
+			/usr/sbin/ipset destroy
+		fi
+		/sbin/vconfig set_name_type DEV_PLUS_VID_NO_PAD
+		/usr/local/pf/bin/pfcmd service pf start
+		RETVAL=$?
+		echo
+		return $RETVAL
+        else
+		echo -n $"Starting $1"
+		/usr/local/pf/bin/pfcmd service $1 start;
+		RETVAL=$?
+		echo
+		return $RETVAL
+	fi
+}
+
+stop() {
+        if [ -z ${1+x} ]; then
+        pfredis_cache
+		pfconfig
+		echo -n $"Shutting down PacketFence..."
+		/usr/local/pf/bin/pfcmd service pf stop
+		RETVAL=$?
+		echo
+		return $RETVAL
+        else
+		echo -n $"Shutting down $1"
+                /usr/local/pf/bin/pfcmd service $1 start;
+                RETVAL=$?
+                echo
+                return $RETVAL
+	fi
+}
+
+restart() {
+        if [ -z ${1+x} ]; then
+        pfredis_cache
+		pfconfig
+		echo -n $"Restarting PacketFence..."
+		/usr/local/pf/bin/pfcmd service pf restart
+		RETVAL=$?
+		echo
+		return $RETVAL
+        else
+		echo -n $"Restarting $1"
+                /usr/local/pf/bin/pfcmd service $1 restart;
+                RETVAL=$?
+                echo
+                return $RETVAL
+	fi
+}
+
+pfredis_cache() {
+    /etc/init.d/packetfence-redis-cache start
+}
+
+pfconfig() {
+    # Check if packetfence-config is started
+	  if [ ! -f /usr/local/pf/var/run/pfconfig.pid ] || ! ps -p $(cat /usr/local/pf/var/run/pfconfig.pid) > /dev/null; then
+            if [ -f /etc/init.d/packetfence-config ]; then
+                    /etc/init.d/packetfence-config start
+            fi
+    fi
+}
+
+case "$1" in
+  start)
+	start $2
+	;;
+  stop)
+	stop $2
+	;;
+  restart)
+	restart $2
+	;;
+  status)
+	pfconfig
+	/usr/local/pf/bin/pfcmd service pf status
+	if [ ! -f /usr/local/pf/var/run/pfmon.pid ]; then
+		RETVAL=3
+	fi
+	;;
+  condrestart)
+	if [ -f /usr/local/pf/var/run/pfmon.pid ]; then
+		restart
+	fi
+	;;
+  *)
+	echo $"Usage: $0 {start|stop|restart|condrestart|status}"
+	RETVAL=1
+esac
+
+exit $RETVAL
